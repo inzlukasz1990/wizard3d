@@ -1,0 +1,7 @@
+tensorflow
+numpy
+numpy-stl
+trimesh
+tensorflow-graphics
+scikit-image
+meshio
