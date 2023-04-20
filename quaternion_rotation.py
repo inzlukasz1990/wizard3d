@@ -1,14 +1,14 @@
-# quaternion_rotation.py
-
 import torch
 import torch.nn as nn
+from torch.jit import script_if_tracing
 
 class QuaternionRotation(nn.Module):
-    def __init__(self, axis, theta):
+    def __init__(self, device, axis, theta):
         super(QuaternionRotation, self).__init__()
 
         self.axis = axis
         self.theta = theta
+        self.device = device
 
     def forward(self, x):
         if self.training:
@@ -16,8 +16,8 @@ class QuaternionRotation(nn.Module):
             return self._rotate_voxels(x, q)
         return x
 
-    @staticmethod
-    def _axis_angle_to_quaternion(axis, theta):
+    @script_if_tracing
+    def _axis_angle_to_quaternion(self, axis, theta):
         sin_half_theta = torch.sin(theta / 2)
         cos_half_theta = torch.cos(theta / 2)
 
@@ -26,15 +26,16 @@ class QuaternionRotation(nn.Module):
             axis * sin_half_theta
         ), dim=0)
 
-    @staticmethod
-    def _rotate_voxels(x, q):
-        q_conj = q * torch.tensor([1, -1, -1, -1], dtype=q.dtype)
+    @script_if_tracing
+    def _rotate_voxels(self, x, q):
+        q = q.to(self.device)
+        q_conj = q * torch.tensor([1, -1, -1, -1], dtype=q.dtype, device=self.device)
 
         # Convert voxel grid to a list of 3D coordinates
         coords = torch.nonzero(x, as_tuple=False).float()
 
         # Apply quaternion rotation
-        rotated_coords = QuaternionRotation._apply_quaternion_rotation(coords, q, q_conj)
+        rotated_coords = self._apply_quaternion_rotation(coords, q, q_conj)
 
         # Create a new voxel grid with rotated coordinates
         rotated_x = torch.zeros_like(x)
@@ -48,15 +49,15 @@ class QuaternionRotation(nn.Module):
 
         return rotated_x
 
-    @staticmethod
-    def _apply_quaternion_rotation(coords, q, q_conj):
-        coords = torch.cat((torch.zeros((coords.shape[0], 1)), coords), dim=1)
-        coords_quaternion = QuaternionRotation._multiply_quaternions(q, coords)
-        rotated_coords_quaternion = QuaternionRotation._multiply_quaternions(coords_quaternion, q_conj)
+    @script_if_tracing
+    def _apply_quaternion_rotation(self, coords, q, q_conj):
+        coords = torch.cat((torch.zeros((coords.shape[0], 1), device=q.device), coords), dim=1)
+        coords_quaternion = self._multiply_quaternions(q, coords)
+        rotated_coords_quaternion = self._multiply_quaternions(coords_quaternion, q_conj)
         return rotated_coords_quaternion[:, 1:]
 
-    @staticmethod
-    def _multiply_quaternions(q1, q2):
+    @script_if_tracing
+    def _multiply_quaternions(self, q1, q2):
         w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
         w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
 

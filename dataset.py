@@ -1,27 +1,5 @@
 # dataset.py
 
-#The `dataset.py` script defines a custom dataset class called `STLCategoryDataset` for loading and accessing 3D mesh data, along with a collate function `collate_fn` for combining the dataset items into a batch.
-#
-#`STLCategoryDataset` is a subclass of PyTorch's `Dataset` class and overrides the `__init__`, `__len__`, and `__getitem__` methods:
-#
-#1. `__init__(self, root_dir, categories, voxel_res)`: The constructor takes the root directory, a list of categories, and the voxel resolution as input arguments. It initializes instance variables and constructs a list of file paths and their corresponding labels for all 3D mesh files in the specified categories.
-#
-#2. `__len__(self)`: This method returns the total number of 3D mesh files in the dataset.
-#
-#3. `__getitem__(self, idx)`: This method takes an index `idx` and returns the file path and label at that index.
-#
-#The `collate_fn` function is used by PyTorch's DataLoader to combine dataset items into a batch. It takes a list of dataset items (in this case, file paths and labels) and the desired batch size as input arguments:
-#
-#1. Unzip the batch list into separate lists of file paths and labels using `zip(*batch)`.
-#
-#2. Load and voxelize the 3D mesh data from the file paths using the `load_and_voxelize` function with a voxel resolution of 32.
-#
-#3. Check if the number of items in the batch is less than the desired batch size. If so, pad the tensors and labels with zeros and -1, respectively, to make the batch size equal to the desired batch size.
-#
-#4. Return the padded tensors and labels as a tuple.
-#
-#The `STLCategoryDataset` class can be used to create instances of datasets for different categories of 3D mesh data, and the `collate_fn` function can be used as an argument to PyTorch's DataLoader to create batches of the data.
-
 import os
 import torch
 from torch.utils.data import Dataset

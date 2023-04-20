@@ -1,33 +1,5 @@
 # main.py
 
-#The `main.py` script is the main entry point for training a 3D mesh classifier using the ArcAsh3DClassifier model. Here's a step-by-step explanation of the code:
-#
-#1. Define the root directory containing the STL files, the categories, the voxel resolution, the batch size, the number of classes, and the device (CPU or GPU) to use for training.
-#
-#2. Load the dataset using the `STLCategoryDataset` class with the specified root directory, categories, and voxel resolution.
-#
-#3. Create a DataLoader instance using the dataset, batch size, and the custom `collate_fn` function.
-#
-#4. Initialize the ArcAsh3DClassifier model with the specified batch size, input channels, and number of classes. Move the model to the selected device (CPU or GPU).
-#
-#5. Define the loss function as Binary Cross Entropy with Logits Loss (BCEWithLogitsLoss) and the optimizer as Adam with a learning rate of 0.001.
-#
-#6. Train the model for 100 epochs. In each epoch, iterate over the DataLoader:
-#   a. One-hot encode the labels using the `one_hot_encode` function.
-#   b. Move the input tensors and labels to the selected device (CPU or GPU).
-#   c. Zero the gradients of the optimizer.
-#   d. Forward pass the input tensors through the model to get the output logits.
-#   e. Compute the loss between the output logits and the one-hot encoded labels.
-#   f. Backpropagate the gradients.
-#   g. Update the model parameters using the optimizer.
-#   h. Accumulate the running loss.
-#
-#7. After each epoch, print the average loss for that epoch.
-#
-#8. Once the training is complete, print "Finished training".
-#
-#To train the classifier on your own dataset, replace the `categories` list with your actual category names, and update the `root_dir` to point to the directory containing your STL files.
-
 import os
 import torch
 import torch.nn as nn
@@ -82,7 +54,7 @@ def main():
     test_dataloader = DataLoader(dataset, batch_size, sampler=test_sampler, collate_fn=lambda b: collate_fn(b, batch_size))
 
     # Initialize the model
-    model = ArcAsh3DClassifier(batch_size=batch_size, in_channels=1, num_classes=num_classes).to(device)
+    model = ArcAsh3DClassifier(batch_size=batch_size, in_channels=1, num_classes=num_classes, device=device).to(device)
 
     # Define the loss function and optimizer
     criterion = nn.BCEWithLogitsLoss()
@@ -96,7 +68,7 @@ def main():
             inputs, labels = inputs.to(device), labels.to(device)
 
             optimizer.zero_grad()
-            outputs = model(inputs)
+            outputs = model(inputs).to(device)
 
             loss = criterion(outputs, labels)
             loss.backward()
@@ -109,6 +81,9 @@ def main():
         print(f"Epoch {epoch + 1}, Train Loss: {train_loss}, Test Loss: {test_loss}")
 
     print("Finished training")
+
+    # Save the model
+    torch.save(model.state_dict(), "arcash_3d_classifier.pth")
 
 if __name__ == "__main__":
     main()
