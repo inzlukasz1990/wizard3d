@@ -1,132 +1,115 @@
-import numpy as np
-from tensorflow import keras
-print("here")
-from tensorflow.keras import layers
-from quaternion_rotation import QuaternionRotation
-from data_utils import list_stl_files, load_and_preprocess_stl
-from skimage.measure import marching_cubes
-import tensorflow as tf
-from tensorflow.keras import layers, models
-import meshio
+# main.py
 
-def build_generator(input_shape, output_shape):
-    model = models.Sequential(
-        [
-            layers.Input(input_shape),
-            layers.Dense(256, activation="relu"),
-            layers.BatchNormalization(),
-            layers.Dense(512, activation="relu"),
-            layers.BatchNormalization(),
-            layers.Dense(1024, activation="relu"),
-            layers.BatchNormalization(),
-            layers.Dense(np.prod(output_shape), activation="sigmoid"),
-            layers.Reshape(output_shape),
-        ]
-    )
-    return model
+#The `main.py` script is the main entry point for training a 3D mesh classifier using the ArcAsh3DClassifier model. Here's a step-by-step explanation of the code:
+#
+#1. Define the root directory containing the STL files, the categories, the voxel resolution, the batch size, the number of classes, and the device (CPU or GPU) to use for training.
+#
+#2. Load the dataset using the `STLCategoryDataset` class with the specified root directory, categories, and voxel resolution.
+#
+#3. Create a DataLoader instance using the dataset, batch size, and the custom `collate_fn` function.
+#
+#4. Initialize the ArcAsh3DClassifier model with the specified batch size, input channels, and number of classes. Move the model to the selected device (CPU or GPU).
+#
+#5. Define the loss function as Binary Cross Entropy with Logits Loss (BCEWithLogitsLoss) and the optimizer as Adam with a learning rate of 0.001.
+#
+#6. Train the model for 100 epochs. In each epoch, iterate over the DataLoader:
+#   a. One-hot encode the labels using the `one_hot_encode` function.
+#   b. Move the input tensors and labels to the selected device (CPU or GPU).
+#   c. Zero the gradients of the optimizer.
+#   d. Forward pass the input tensors through the model to get the output logits.
+#   e. Compute the loss between the output logits and the one-hot encoded labels.
+#   f. Backpropagate the gradients.
+#   g. Update the model parameters using the optimizer.
+#   h. Accumulate the running loss.
+#
+#7. After each epoch, print the average loss for that epoch.
+#
+#8. Once the training is complete, print "Finished training".
+#
+#To train the classifier on your own dataset, replace the `categories` list with your actual category names, and update the `root_dir` to point to the directory containing your STL files.
 
-def build_discriminator(input_shape):
-    model = models.Sequential(
-        [
-            layers.Input(input_shape),
-            QuaternionRotation(),
-            layers.Conv3D(32, kernel_size=(3, 3, 3), strides=(2, 2, 2), activation="relu"),
-            layers.BatchNormalization(),
-            GaussianDiffusion(),
-            layers.Conv3D(64, kernel_size=(3, 3, 3), strides=(2, 2, 2), activation="relu"),
-            layers.BatchNormalization(),
-            layers.Flatten(),
-            layers.Dense(1, activation="sigmoid"),
-        ]
-    )
-    return model
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from dataset import collate_fn
+from arcash_net import ArcAsh3DClassifier
+from dataset import STLCategoryDataset
+from data_utils import one_hot_encode
+from sklearn.model_selection import train_test_split
 
-def build_gan(generator, discriminator):
-    model = models.Sequential([generator, discriminator])
-    return model
+def load_categories(root_dir):
+    return [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
 
-# Define the input shape and number of classes for your 3D dataset
-input_shape = (64, 64, 64, 1)  # (Depth, Height, Width, Channels)
-num_classes = 10
+def validation_loss(model, num_classes, criterion, dataloader, device):
+    total_loss = 0.0
+    total_samples = 0
 
-directory = "./stls"
-file_label_pairs = list_stl_files(directory)
+    model.eval()
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            labels = one_hot_encode(labels, num_classes)
+            inputs, labels = inputs.to(device), labels.to(device)
 
-X_train = []
-y_train = []
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
 
-for file_path, label in file_label_pairs:
-    preprocessed_stl = load_and_preprocess_stl(file_path, input_shape[:-1])
-    X_train.append(preprocessed_stl)
+            total_loss += loss.item() * inputs.size(0)
+            total_samples += inputs.size(0)
 
-    one_hot_label = one_hot_encode_label(label, label_to_index)
-    y_train.append(one_hot_label)
+    model.train()
+    return total_loss / total_samples
 
-X_train = np.array(X_train)
-y_train = np.array(y_train)
+def main():
+    root_dir = "/home/laptop/Projekty/wizard3d/Thingi10K_name_and_category"
+    categories = load_categories(root_dir)
+    voxel_res = 32
+    batch_size = 4
+    num_classes = len(categories)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-generator_input_shape = (y_train.shape[1],)  # Assuming y_train contains the one_hot_labels
-discriminator_input_shape = input_shape  # Assuming input_shape is the shape of preprocessed_stl
+    # Load the dataset
+    dataset = STLCategoryDataset(root_dir, categories, voxel_res)
 
-generator = build_generator(generator_input_shape, discriminator_input_shape)
-discriminator = build_discriminator(discriminator_input_shape)
+    # Split the dataset into training and test sets
+    train_indices, test_indices = train_test_split(range(len(dataset)), test_size=0.2, random_state=42, shuffle=True)
+    train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+    test_sampler = torch.utils.data.SubsetRandomSampler(test_indices)
 
-# Train the model
-discriminator.compile(
-    optimizer=tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5),
-    loss="binary_crossentropy",
-    metrics=["accuracy"],
-)
+    # Create DataLoaders for training and test sets
+    train_dataloader = DataLoader(dataset, batch_size, sampler=train_sampler, collate_fn=lambda b: collate_fn(b, batch_size))
+    test_dataloader = DataLoader(dataset, batch_size, sampler=test_sampler, collate_fn=lambda b: collate_fn(b, batch_size))
 
-# Set the discriminator to be non-trainable when combined with the generator in the GAN model
-discriminator.trainable = False
+    # Initialize the model
+    model = ArcAsh3DClassifier(batch_size=batch_size, in_channels=1, num_classes=num_classes).to(device)
 
-gan = build_gan(generator, discriminator)
-gan.compile(
-    optimizer=tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5),
-    loss="binary_crossentropy",
-)
+    # Define the loss function and optimizer
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-def train_gan(epochs, batch_size):
-    for epoch in range(epochs):
-        for batch in range(len(X_train) // batch_size):
-            # Select a random batch of samples and labels
-            idx = np.random.randint(0, len(X_train), batch_size)
-            real_images = X_train[idx]
-            real_labels = y_train[idx]
+    # Train the model
+    for epoch in range(100):
+        running_loss = 0.0
+        for i, (inputs, labels) in enumerate(train_dataloader, 0):
+            labels = one_hot_encode(labels, num_classes)
+            inputs, labels = inputs.to(device), labels.to(device)
 
-            # Generate fake images
-            noise = np.random.normal(0, 1, (batch_size, generator_input_shape[0]))
-            fake_images = generator.predict(noise)
+            optimizer.zero_grad()
+            outputs = model(inputs)
 
-            # Concatenate real and fake images
-            images = np.concatenate([real_images, fake_images])
-            labels = np.concatenate([np.ones((batch_size, 1)), np.zeros((batch_size, 1))])
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-            # Train the discriminator
-            discriminator.trainable = True
-            d_loss = discriminator.train_on_batch(images, labels)
+            running_loss += loss.item()
 
-            # Train the generator
-            noise = np.random.normal(0, 1, (batch_size, generator_input_shape[0]))
-            discriminator.trainable = False
-            g_loss = gan.train_on_batch(noise, np.ones((batch_size, 1)))
+        train_loss = running_loss / len(train_dataloader)
+        test_loss = validation_loss(model, num_classes, criterion, test_dataloader, device)
+        print(f"Epoch {epoch + 1}, Train Loss: {train_loss}, Test Loss: {test_loss}")
 
-        print(f"Epoch {epoch + 1}, Discriminator loss: {d_loss[0]}, Generator loss: {g_loss}")
+    print("Finished training")
 
-# Train the GAN
-train_gan(epochs=100, batch_size=32)
-
-
-text_description = "A simple cube"
-text_encoding = encode_text(text_description)  # Replace with your text encoding function
-generated_mesh = generator.predict(np.array([text_encoding]))[0]
-
-# Assuming generated_mesh is a voxel grid with values in the range [0, 1]
-threshold = 0.5
-verts, faces, _, _ = marching_cubes(generated_mesh, level=threshold)
-
-output_filename = "output.stl"
-mesh = meshio.Mesh(verts, [("triangle", faces)])
-meshio.write(output_filename, mesh)
+if __name__ == "__main__":
+    main()
 

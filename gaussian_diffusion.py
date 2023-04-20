@@ -1,24 +1,16 @@
-import tensorflow as tf
-from tensorflow.keras import layers
+# gaussian_diffusion.py
 
-class GaussianDiffusion(layers.Layer):
-    def __init__(self, **kwargs):
-        super(GaussianDiffusion, self).__init__(**kwargs)
-        self.std_dev = tf.Variable(initial_value=0.1, trainable=True, dtype=tf.float32)
+import torch
+import torch.nn as nn
 
-    def call(self, inputs, training=None):
-        if training:
-            noise = tf.random.normal(shape=tf.shape(inputs), mean=0.0, stddev=self.std_dev)
-            return inputs + noise
-        else:
-            return inputs
+class GaussianDiffusion(nn.Module):
+    def __init__(self, channels=4, std_dev=0.1):
+        super(GaussianDiffusion, self).__init__()
+        self.channels = channels
+        self.std_dev = std_dev
 
-    def get_config(self):
-        config = super(GaussianDiffusion, self).get_config()
-        config.update({"std_dev": self.std_dev.numpy()})
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
+    def forward(self, x):
+        if self.training:
+            noise = torch.randn_like(x) * self.std_dev
+            x = x + noise
+        return x
